@@ -52,6 +52,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
+import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -1053,7 +1054,7 @@ public class GoPsiImplUtil {
     return false;
   }
 
-  public static boolean shouldGoDeeper(@SuppressWarnings("UnusedParameters") GoType o) {
+  public static boolean shouldGoDeeper(@NotNull GoType o) {
     return o instanceof GoInterfaceType || o instanceof GoStructType;
   }
 
@@ -1494,5 +1495,10 @@ public class GoPsiImplUtil {
       }
       return result;
     }
+  }
+
+  @NotNull
+  public static ThreeState isAssignableFrom(@NotNull GoType left, @Nullable GoType right) {
+    return GoTypeUtil.isAssignable(left, right);
   }
 }
