@@ -42,8 +42,16 @@ public class GoTypesIdenticalTest extends GoCodeInsightFixtureTestCase {
     return Arrays.asList(new Object[][]{
       {"[]string", "[]string", true},
       {"string", "[]string", false},
+      {"map[int]string", "map[int]string", true},
+      {"map[int]string", "map[int]int", false},
+      {"chan<- float64", "chan<- float64", true},
+      {"chan<- string", "chan<- float64", false},
+      {"<-chan <-chan int", "<-chan <-chan int", true},
+      {"<-chan <-chan int", "<-chan <-chan string", false},
       {"string", "string", true},
       {"int", "string", false},
+      {"interface{}", "interface{}", true},
+      {"struct{}", "struct{}", true},
     });
   }
 
@@ -93,7 +101,8 @@ public class GoTypesIdenticalTest extends GoCodeInsightFixtureTestCase {
       public void run() throws Throwable {
         GoTypesIdenticalTest.super.tearDown();
       }
-    });  }
+    });
+  }
 
   @Override
   protected LightProjectDescriptor getProjectDescriptor() {
