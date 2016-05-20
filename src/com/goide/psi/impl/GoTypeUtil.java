@@ -18,8 +18,11 @@ package com.goide.psi.impl;
 
 import com.goide.psi.*;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.SyntaxTraverser;
 import com.intellij.util.ThreeState;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -122,9 +125,12 @@ public class GoTypeUtil {
   }
 
   private static boolean identicalStructs(@NotNull GoStructType left, @NotNull GoStructType right) {
-    List<GoFieldDefinition> l = SyntaxTraverser.psiTraverser(left).filter(GoFieldDefinition.class).toList();
-    List<GoFieldDefinition> r = SyntaxTraverser.psiTraverser(right).filter(GoFieldDefinition.class).toList();
+    List<GoNamedElement> l = SyntaxTraverser.psiTraverser(left).filter(GoNamedElement.class).toList();
+    List<GoNamedElement> r = SyntaxTraverser.psiTraverser(right).filter(GoNamedElement.class).toList();
     if (l.size() != r.size()) return false;
+    List<String> lNames = ContainerUtil.map(l, PsiNamedElement::getName);
+    List<String> rNames = ContainerUtil.map(r, PsiNamedElement::getName);
+    if (!ContainerUtil.equalsIdentity(lNames, rNames)) return false;
     return true;
   }
 }
