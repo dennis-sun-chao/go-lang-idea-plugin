@@ -18,6 +18,7 @@ package com.goide.type;
 
 import com.goide.GoCodeInsightFixtureTestCase;
 import com.goide.psi.GoFile;
+import com.goide.psi.GoType;
 import com.goide.psi.GoVarDefinition;
 import com.goide.psi.impl.GoTypeUtil;
 import com.intellij.testFramework.EdtTestUtil;
@@ -52,6 +53,10 @@ public class GoTypesIdenticalTest extends GoCodeInsightFixtureTestCase {
       {"int", "string", false},
       {"interface{}", "interface{}", true},
       {"struct{}", "struct{}", true},
+      {"struct{}", "struct{a int}", false},
+      {"struct{a int}", "struct{a int}", true},
+      {"struct{a int}", "struct{b int}", true},
+      {"struct{a int}", "struct{a string; b int}", false},
     });
   }
 
@@ -79,7 +84,11 @@ public class GoTypesIdenticalTest extends GoCodeInsightFixtureTestCase {
   private void doTest() {
     myFixture.configureByText("a.go", "package main;var x " + left + ";var y " + right);
     List<GoVarDefinition> vars = ((GoFile)myFixture.getFile()).getVars();
-    assertTrue(ok == GoTypeUtil.identical(vars.get(0).getGoType(null), vars.get(1).getGoType(null)));
+    GoType left = vars.get(0).getGoType(null);
+    GoType right = vars.get(1).getGoType(null);
+    String leftText = left == null ? null : left.getText();
+    String rightText = right == null ? null : right.getText();
+    assertTrue(leftText + " should" + (!ok ? " not " : " ") + "equal " + rightText, ok == GoTypeUtil.identical(left, right));
   }
 
   @Before

@@ -18,9 +18,12 @@ package com.goide.psi.impl;
 
 import com.goide.psi.*;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.psi.SyntaxTraverser;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 public class GoTypeUtil {
   /**
@@ -85,7 +88,7 @@ public class GoTypeUtil {
     if (left instanceof GoStructType) {
       // todo
       // Two struct types are identical if they have the same sequence of fields, and if corresponding fields have the same names, and identical types, and identical tags. Two anonymous fields are considered to have the same name. Lower-case field names from different packages are always different.
-      return right instanceof GoStructType;
+      return right instanceof GoStructType && identicalStructs((GoStructType)left, (GoStructType)right);
     }
     if (left instanceof GoPointerType) {
       return right instanceof GoPointerType && identical(((GoPointerType)left).getType(), ((GoPointerType)right).getType());
@@ -116,5 +119,12 @@ public class GoTypeUtil {
     // GoReceiverType, GoCType, GoTypeList 
 
     return false;
+  }
+
+  private static boolean identicalStructs(@NotNull GoStructType left, @NotNull GoStructType right) {
+    List<GoFieldDefinition> l = SyntaxTraverser.psiTraverser(left).filter(GoFieldDefinition.class).toList();
+    List<GoFieldDefinition> r = SyntaxTraverser.psiTraverser(right).filter(GoFieldDefinition.class).toList();
+    if (l.size() != r.size()) return false;
+    return true;
   }
 }
