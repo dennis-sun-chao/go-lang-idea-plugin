@@ -17,6 +17,8 @@
 package com.goide.inspections;
 
 import com.goide.psi.*;
+import com.goide.psi.impl.GoPsiImplUtil;
+import com.goide.psi.impl.GoTypeUtil;
 import com.intellij.codeInspection.LocalInspectionToolSession;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
@@ -27,7 +29,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-import static com.goide.inspections.GoInspectionUtil.*;
+import static com.goide.inspections.GoInspectionUtil.UNKNOWN_COUNT;
+import static com.goide.inspections.GoInspectionUtil.getExpressionResultCount;
 
 public class GoVarDeclarationInspection extends GoInspectionBase {
   @NotNull
@@ -35,22 +38,13 @@ public class GoVarDeclarationInspection extends GoInspectionBase {
     PsiElement assign = varDeclaration instanceof GoShortVarDeclaration ? ((GoShortVarDeclaration)varDeclaration).getVarAssign()
                                                                         : varDeclaration.getAssign();
     if (assign == null) {
-      return Pair.create(ContainerUtil.emptyList(),
-                         ContainerUtil.emptyList());
+      return Pair.create(ContainerUtil.emptyList(), ContainerUtil.emptyList());
     }
-    if (varDeclaration instanceof GoRecvStatement || varDeclaration instanceof GoRangeClause) {
-      List<GoCompositeElement> v = ContainerUtil.newArrayList();
-      List<GoExpression> e = ContainerUtil.newArrayList();
-      for (PsiElement c : varDeclaration.getChildren()) {
-        if (!(c instanceof GoCompositeElement)) continue;
-        if (c.getTextOffset() < assign.getTextOffset()) {
-          v.add((GoCompositeElement)c);
-        }
-        else if (c instanceof GoExpression) {
-          e.add((GoExpression)c);
-        }
-      }
-      return Pair.create(v, e);
+    if (varDeclaration instanceof GoRecvStatement) {
+      return Pair.create(((GoRecvStatement)varDeclaration).getLeftExpressionsList(), varDeclaration.getRightExpressionsList());
+    }
+    if (varDeclaration instanceof GoRangeClause) {
+      return Pair.create(((GoRangeClause)varDeclaration).getLeftExpressionsList(), varDeclaration.getRightExpressionsList());
     }
     return Pair.create(varDeclaration.getVarDefinitionList(), varDeclaration.getRightExpressionsList());
   }
@@ -60,10 +54,29 @@ public class GoVarDeclarationInspection extends GoInspectionBase {
   protected GoVisitor buildGoVisitor(@NotNull final ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
     return new GoVisitor() {
       @Override
+      public void visitAssignmentStatement(@NotNull GoAssignmentStatement o) {
+        validatePair(o, Pair.create(o.getLeftHandExprList().getExpressionList(), o.getExpressionList()));
+      }
+
+      @Override
       public void visitVarSpec(@NotNull GoVarSpec o) {
-        Pair<? extends List<? extends GoCompositeElement>, List<GoExpression>> p = getPair(o);
+        validatePair(o, getPair(o));
+      }
+
+      private void validatePair(@NotNull GoCompositeElement o, Pair<? extends List<? extends GoCompositeElement>, List<GoExpression>> p) {
         List<GoExpression> list = p.second;
         int idCount = p.first.size();
+        for (GoCompositeElement idElement : p.first) {
+          if (idElement instanceof GoIndexOrSliceExpr) {
+            GoType referenceType = GoPsiImplUtil.getIndexedExpressionReferenceType((GoIndexOrSliceExpr)idElement, null);
+            if (referenceType != null && GoTypeUtil.isString(referenceType.getUnderlyingType())) {
+              // https://golang.org/ref/spec#Index_expressions
+              // For a of string type: a[x] may not be assigned to
+              holder.registerProblem(idElement, "Cannot assign to <code>#ref</code> #loc");
+            }
+          }
+        }
+
         int expressionsSize = list.size();
         if (expressionsSize == 0) {
           return;
@@ -72,11 +85,23 @@ public class GoVarDeclarationInspection extends GoInspectionBase {
           checkExpressionShouldReturnOneResult(list, holder);
           return;
         }
-        
+
         int exprCount = expressionsSize;
-        if (o instanceof GoRangeClause && idCount == 2) {
-          // range clause can be assigned to two variables
-          return;
+        if (idCount == 2) {
+          if (o instanceof GoRangeClause) {
+            // range clause can be assigned to two variables
+            return;
+          }
+          if (expressionsSize == 1) {
+            GoExpression expression = list.get(0);
+            if (expression instanceof GoIndexOrSliceExpr) {
+              GoType referenceType = GoPsiImplUtil.getIndexedExpressionReferenceType((GoIndexOrSliceExpr)expression, null);
+              if (referenceType != null && referenceType.getUnderlyingType() instanceof GoMapType) {
+                // index expressions on maps can be assigned to two variables
+                return;
+              }
+            }
+          }
         }
         if (expressionsSize == 1) {
           exprCount = getExpressionResultCount(list.get(0));
@@ -87,5 +112,20 @@ public class GoVarDeclarationInspection extends GoInspectionBase {
         holder.registerProblem(o, msg, ProblemHighlightType.GENERIC_ERROR);
       }
     };
+  }
+
+  private static void checkExpressionShouldReturnOneResult(@NotNull List<GoExpression> expressions, @NotNull ProblemsHolder result) {
+    for (GoExpression expr : expressions) {
+      int count = getExpressionResultCount(expr);
+      if (count != UNKNOWN_COUNT && count != 1) {
+        String text = expr.getText();
+        if (expr instanceof GoCallExpr) {
+          text = ((GoCallExpr)expr).getExpression().getText();
+        }
+
+        String msg = count == 0 ? text + "() doesn't return a value" : "Multiple-value " + text + "() in single-value context";
+        result.registerProblem(expr, msg, ProblemHighlightType.GENERIC_ERROR);
+      }
+    }
   }
 }

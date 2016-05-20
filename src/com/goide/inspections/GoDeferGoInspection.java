@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2015 Sergey Ignatov, Alexander Zolotov, Florin Patan
+ * Copyright 2013-2016 Sergey Ignatov, Alexander Zolotov, Florin Patan
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,20 @@
 package com.goide.inspections;
 
 import com.goide.psi.*;
-import com.intellij.codeInspection.LocalInspectionToolSession;
-import com.intellij.codeInspection.ProblemHighlightType;
-import com.intellij.codeInspection.ProblemsHolder;
+import com.goide.psi.impl.GoElementFactory;
+import com.intellij.codeInspection.*;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class GoDeferGoInspection extends GoInspectionBase {
+  public static final String ADD_CALL_QUICK_FIX_NAME = "Add function call";
+  public static final String UNWRAP_PARENTHESES_QUICK_FIX_NAME = "Unwrap parentheses";
+
   @NotNull
   @Override
-  protected GoVisitor buildGoVisitor(@NotNull final ProblemsHolder holder,
-                                     @SuppressWarnings({"UnusedParameters", "For future"}) @NotNull LocalInspectionToolSession session) {
+  protected GoVisitor buildGoVisitor(@NotNull final ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
     return new GoVisitor() {
       @Override
       public void visitDeferStatement(@NotNull GoDeferStatement o) {
@@ -42,10 +45,55 @@ public class GoDeferGoInspection extends GoInspectionBase {
       }
 
       private void checkExpression(@Nullable GoExpression o, String who) {
-        if (o == null) return;
-        if (o instanceof GoCallExpr || o instanceof GoBuiltinCallExpr) return;
-        holder.registerProblem(o, "Argument to " + who + " must be function call", ProblemHighlightType.GENERIC_ERROR_OR_WARNING);
+        if (o == null || o instanceof GoCallExpr || o instanceof GoBuiltinCallExpr) return;
+        if (o instanceof GoParenthesesExpr) {
+          holder.registerProblem(o, "Expression in " + who + " must not be parenthesized", ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
+                                 new GoUnwrapParensExpression());
+        }
+        LocalQuickFix[] fixes = o.getGoType(null) instanceof GoFunctionType ? new LocalQuickFix[]{new GoAddParensQuickFix()}
+                                                                            : LocalQuickFix.EMPTY_ARRAY;
+        holder.registerProblem(o, "Expression in " + who + " must be function call", ProblemHighlightType.GENERIC_ERROR_OR_WARNING, fixes);
       }
     };
+  }
+
+  public static class GoAddParensQuickFix extends LocalQuickFixBase {
+    protected GoAddParensQuickFix() {
+      super(ADD_CALL_QUICK_FIX_NAME);
+    }
+
+    @Override
+    public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
+      addParensIfNeeded(project, descriptor.getStartElement());
+    }
+
+    public static PsiElement addParensIfNeeded(@NotNull Project project, @Nullable PsiElement element) {
+      if (element instanceof GoExpression && !(element instanceof GoCallExpr || element instanceof GoBuiltinCallExpr)) {
+        if (((GoExpression)element).getGoType(null) instanceof GoFunctionType) {
+          return element.replace(GoElementFactory.createExpression(project, element.getText() + "()"));
+        }
+      }
+      return null;
+    }
+  }
+
+  private static class GoUnwrapParensExpression extends LocalQuickFixBase {
+    protected GoUnwrapParensExpression() {
+      super(UNWRAP_PARENTHESES_QUICK_FIX_NAME);
+    }
+
+    @Override
+    public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
+      PsiElement element = descriptor.getStartElement();
+      if (element instanceof GoParenthesesExpr) {
+        GoExpression innerExpression = ((GoParenthesesExpr)element).getExpression();
+        while (innerExpression instanceof GoParenthesesExpr) {
+          innerExpression = ((GoParenthesesExpr)innerExpression).getExpression();
+        }
+        if (innerExpression != null) {
+          element.replace(GoElementFactory.createExpression(project, innerExpression.getText()));
+        }
+      }
+    }
   }
 }

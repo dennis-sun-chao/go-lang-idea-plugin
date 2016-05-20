@@ -417,12 +417,9 @@ public class GoPsiImplUtil {
       return item != null ? item.getGoType(context) : null;
     }
     else if (o instanceof GoIndexOrSliceExpr) {
-      GoExpression first = ContainerUtil.getFirstItem(((GoIndexOrSliceExpr)o).getExpressionList());
-      // todo: calculate type for indexed expressions only
-      // https://golang.org/ref/spec#Index_expressions – a[x] is shorthand for (*a)[x]
-      GoType firstType = unwrapPointerIfNeeded(first == null ? null : first.getGoType(context));
-      if (o.getNode().findChildByType(GoTypes.COLON) != null) return firstType; // means slice expression, todo: extract if needed
-      GoType type = firstType != null ? firstType.getUnderlyingType() : null;
+      GoType referenceType = getIndexedExpressionReferenceType((GoIndexOrSliceExpr)o, context);
+      if (o.getNode().findChildByType(GoTypes.COLON) != null) return referenceType; // means slice expression, todo: extract if needed
+      GoType type = referenceType != null ? referenceType.getUnderlyingType() : null;
       if (type instanceof GoMapType) {
         List<GoType> list = ((GoMapType)type).getTypeList();
         if (list.size() == 2) {
@@ -457,6 +454,15 @@ public class GoPsiImplUtil {
       return getBuiltinType("bool", o);
     }
     return null;
+  }
+
+  @Nullable
+  public static GoType getIndexedExpressionReferenceType(@NotNull GoIndexOrSliceExpr o, @Nullable ResolveState context) {
+    GoExpression first = ContainerUtil.getFirstItem(o.getExpressionList());
+    GoType firstType = first != null ? first.getGoType(context) : null;
+    // todo: calculate type for indexed expressions only
+    // https://golang.org/ref/spec#Index_expressions – a[x] is shorthand for (*a)[x]
+    return firstType instanceof GoPointerType ? ((GoPointerType)firstType).getType() : firstType;
   }
 
   @Nullable
@@ -577,6 +583,13 @@ public class GoPsiImplUtil {
     return null;
   }
 
+  public static boolean isVoid(@NotNull GoResult result) {
+    GoType type = result.getType();
+    if (type != null) return false;
+    GoParameters parameters = result.getParameters();
+    return parameters == null || parameters.getParameterDeclarationList().isEmpty();
+  }
+
   @Nullable
   private static GoTypeCaseClause getTypeCaseClause(@Nullable PsiElement context, @NotNull GoTypeSwitchStatement switchStatement) {
     return SyntaxTraverser.psiApi().parents(context).takeWhile(Conditions.notEqualTo(switchStatement))
@@ -630,10 +643,12 @@ public class GoPsiImplUtil {
               types.add(declarationType);
             }
           }
-          if (types.size() == 1) return types.get(0);
-          return new LightTypeList(parameters, types);
+          if (!types.isEmpty()) {
+            return types.size() == 1 ? types.get(0) : new LightTypeList(parameters, types);
+          }
         }
       }
+      return null;
     }
     return type;
   }
@@ -1153,6 +1168,9 @@ public class GoPsiImplUtil {
         return result != null ? result.getType() : null;
       }
       return null;
+    }
+    if (e instanceof GoFunctionLit) {
+      return e;
     }
     GoReferenceExpression r = e instanceof GoReferenceExpression
                               ? (GoReferenceExpression)e

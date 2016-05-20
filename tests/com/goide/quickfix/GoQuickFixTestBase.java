@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2015 Sergey Ignatov, Alexander Zolotov, Florin Patan
+ * Copyright 2013-2016 Sergey Ignatov, Alexander Zolotov, Florin Patan
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,11 +30,14 @@ public abstract class GoQuickFixTestBase extends GoCodeInsightFixtureTestCase {
   }
 
   protected void doTest(@NotNull String quickFixName) {
+    doTest(quickFixName, false);
+  }
+
+  protected void doTest(@NotNull String quickFixName, boolean checkHighlighting) {
     String testName = getTestName(true);
-    myFixture.configureByFile(testName + ".go");
+    configure(checkHighlighting, testName);
     applySingleQuickFix(quickFixName);
-    String after = String.format("%s-after.go", testName);
-    myFixture.checkResultByFile(after, true);
+    myFixture.checkResultByFile(testName + "-after.go", true);
   }
 
   protected void applySingleQuickFix(@NotNull String quickFixName) {
@@ -45,9 +48,22 @@ public abstract class GoQuickFixTestBase extends GoCodeInsightFixtureTestCase {
   }
 
   protected void doTestNoFix(@NotNull String name) {
-    String testName = getTestName(true);
-    myFixture.configureByFile(testName + ".go");
+    doTestNoFix(name, false);
+  }
+
+  protected void doTestNoFix(@NotNull String name, boolean checkHighlighting) {
+    configure(checkHighlighting, getTestName(true));
     List<IntentionAction> availableIntentions = myFixture.filterAvailableIntentions(name);
     assertEmpty(availableIntentions);
+  }
+
+  private void configure(boolean checkHighlighting, String testName) {
+    if (checkHighlighting) {
+      myFixture.testHighlighting(testName + ".go");
+    }
+    else {
+      myFixture.configureByFile(testName + ".go");
+      myFixture.doHighlighting();
+    }
   }
 }

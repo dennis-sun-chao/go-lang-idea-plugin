@@ -19,6 +19,7 @@ package com.goide;
 import com.goide.editor.GoParameterInfoHandler;
 import com.goide.project.GoVendoringUtil;
 import com.goide.psi.*;
+import com.goide.psi.impl.GoLightType;
 import com.goide.psi.impl.GoPsiImplUtil;
 import com.goide.sdk.GoPackageUtil;
 import com.goide.sdk.GoSdkUtil;
@@ -27,13 +28,14 @@ import com.goide.stubs.index.GoAllPublicNamesIndex;
 import com.goide.stubs.index.GoIdFilter;
 import com.goide.util.GoUtil;
 import com.intellij.codeInsight.documentation.DocumentationManagerProtocol;
+import com.intellij.lang.ASTNode;
 import com.intellij.lang.documentation.AbstractDocumentationProvider;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -47,22 +49,12 @@ import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 
 public class GoDocumentationProvider extends AbstractDocumentationProvider {
+  private static final Logger LOG = Logger.getInstance(GoDocumentationProvider.class);
   private static final GoCommentsConverter COMMENTS_CONVERTER = new GoCommentsConverter();
-  private static final Comparator<PsiElement> ELEMENT_BY_RANGE_COMPARATOR = new Comparator<PsiElement>() {
-    @Override
-    public int compare(PsiElement t1, PsiElement t2) {
-      TextRange range1 = t1.getTextRange();
-      TextRange range2 = t2.getTextRange();
-      int startOffsetDiff = Comparing.compare(range1.getStartOffset(), range2.getStartOffset());
-      return startOffsetDiff != 0 ? startOffsetDiff : Comparing.compare(range1.getEndOffset(), range2.getEndOffset());
-    }
-  };
 
   @NotNull
   public static String getCommentText(@NotNull List<PsiComment> comments, boolean withHtml) {
@@ -154,19 +146,42 @@ public class GoDocumentationProvider extends AbstractDocumentationProvider {
     if (element instanceof GoVarDefinition) {
       String name = ((GoVarDefinition)element).getName();
       if (StringUtil.isNotEmpty(name)) {
-        String type = getTypePresentation(((GoVarDefinition)element).getGoType(GoPsiImplUtil.createContextOnElement(context)), 
+        String type = getTypePresentation(((GoVarDefinition)element).getGoType(GoPsiImplUtil.createContextOnElement(context)),
                                           getImportPathForElement(element));
         GoExpression value = ((GoVarDefinition)element).getValue();
         return "var " + name + (!type.isEmpty() ? " " + type : "") + (value != null ? " = " + value.getText() : "");
       }
     }
-
-    if (!(element instanceof GoSignatureOwner)) return "";
-    PsiElement identifier = null;
-    if (element instanceof GoNamedSignatureOwner) {
-      identifier = ((GoNamedSignatureOwner)element).getIdentifier();
+    if (element instanceof GoParamDefinition) {
+      String name = ((GoParamDefinition)element).getName();
+      if (StringUtil.isNotEmpty(name)) {
+        String type = getTypePresentation(((GoParamDefinition)element).getGoType(GoPsiImplUtil.createContextOnElement(context)),
+                                          getImportPathForElement(element));
+        return "var " + name + (!type.isEmpty() ? " " + type : "");
+      }
     }
-    GoSignature signature = ((GoSignatureOwner)element).getSignature();
+    if (element instanceof GoReceiver) {
+      String name = ((GoReceiver)element).getName();
+      if (StringUtil.isNotEmpty(name)) {
+        String type = getTypePresentation(((GoReceiver)element).getGoType(GoPsiImplUtil.createContextOnElement(context)),
+                                          getImportPathForElement(element));
+        return "var " + name + (!type.isEmpty() ? " " + type : "");
+      }
+    }
+
+
+    return element instanceof GoSignatureOwner 
+           ? getSignatureOwnerTypePresentation((GoSignatureOwner)element, getImportPathForElement(element)) 
+           : "";
+  }
+
+  @NotNull
+  private static String getSignatureOwnerTypePresentation(@NotNull GoSignatureOwner signatureOwner, @Nullable String contextImportPath) {
+    PsiElement identifier = null;
+    if (signatureOwner instanceof GoNamedSignatureOwner) {
+      identifier = ((GoNamedSignatureOwner)signatureOwner).getIdentifier();
+    }
+    GoSignature signature = signatureOwner.getSignature();
 
     if (identifier == null && signature == null) {
       return "";
@@ -189,7 +204,7 @@ public class GoDocumentationProvider extends AbstractDocumentationProvider {
       }
     }
     else if (type != null) {
-      builder.append(' ').append(getTypePresentation(type, getImportPathForElement(element)));
+      builder.append(' ').append(getTypePresentation(type, contextImportPath));
     }
     return builder.toString();
   }
@@ -218,28 +233,54 @@ public class GoDocumentationProvider extends AbstractDocumentationProvider {
       if (type instanceof GoMapType) {
         GoType keyType = ((GoMapType)type).getKeyType();
         GoType valueType = ((GoMapType)type).getValueType();
-        return replaceInnerTypes(type, contextImportPath, keyType, valueType);
+        return "map[" + getTypePresentation(keyType, contextImportPath) + "]" + getTypePresentation(valueType, contextImportPath);
       }
       if (type instanceof GoChannelType) {
-        return replaceInnerTypes(type, contextImportPath, ((GoChannelType)type).getType());
+        ASTNode typeNode = type.getNode();
+        GoType innerType = ((GoChannelType)type).getType();
+        ASTNode innerTypeNode = innerType != null ? innerType.getNode() : null;
+        if (typeNode != null && innerTypeNode != null) {
+          StringBuilder result = new StringBuilder();
+          for (ASTNode node : typeNode.getChildren(null)) {
+            if (node.equals(innerTypeNode)) {
+              break;
+            }
+            if (node.getElementType() != TokenType.WHITE_SPACE) {
+              result.append(XmlStringUtil.escapeString(node.getText()));
+            }
+          }
+          result.append(" ").append(getTypePresentation(innerType, contextImportPath));
+          return result.toString();
+        }
       }
       if (type instanceof GoParType) {
-        return replaceInnerTypes(type, contextImportPath, ((GoParType)type).getActualType());
+        return "(" + getTypePresentation(((GoParType)type).getActualType(), contextImportPath) + ")";
       }
       if (type instanceof GoArrayOrSliceType) {
-        return replaceInnerTypes(type, contextImportPath, ((GoArrayOrSliceType)type).getType());
+        return "[]" + getTypePresentation(((GoArrayOrSliceType)type).getType(), contextImportPath);
       }
       if (type instanceof GoPointerType) {
         GoType inner = ((GoPointerType)type).getType();
-        return inner instanceof GoSpecType
-               ? getTypePresentation(inner, contextImportPath)
-               : replaceInnerTypes(type, contextImportPath, inner);
+        return inner instanceof GoSpecType ? getTypePresentation(inner, contextImportPath)
+                                           : "*" + getTypePresentation(inner, contextImportPath);
       }
       if (type instanceof GoTypeList) {
-        return "(" + replaceInnerTypes(type, contextImportPath, ((GoTypeList)type).getTypeList()) + ")";
+        return "(" + StringUtil.join(((GoTypeList)type).getTypeList(), new Function<GoType, String>() {
+          @Override
+          public String fun(GoType element) {
+            return getTypePresentation(element, contextImportPath);
+          }
+        }, ", ") + ")";
+      }
+      if (type instanceof GoFunctionType) {
+        return getSignatureOwnerTypePresentation((GoFunctionType)type, contextImportPath); 
       }
       if (type instanceof GoSpecType) {
         return getTypePresentation(GoPsiImplUtil.getTypeSpecSafe(type), contextImportPath);
+      }
+      if (type instanceof GoLightType) {
+        LOG.error("Cannot build presentable text for type: " + type.getClass().getSimpleName() + " - " + type.getText());
+        return "";
       }
       GoTypeReferenceExpression typeRef = GoPsiImplUtil.getTypeReference(type);
       if (typeRef != null) {
@@ -274,31 +315,6 @@ public class GoDocumentationProvider extends AbstractDocumentationProvider {
       return getReferenceText(element, true);
     }
     return null;
-  }
-
-  @NotNull
-  private static String replaceInnerTypes(@NotNull GoType type, @Nullable String contextImportPath, GoType... innerTypes) {
-    return replaceInnerTypes(type, contextImportPath, Arrays.asList(innerTypes));
-  }
-
-  @NotNull
-  private static String replaceInnerTypes(@NotNull GoType type, @Nullable String contextImportPath, @NotNull List<GoType> innerTypes) {
-    StringBuilder result = new StringBuilder();
-    String typeText = type.getText();
-    int initialOffset = type.getTextRange().getStartOffset(); // todo[zolotov] a potential NPE: type.getTextRange() could be null 
-    int lastStartOffset = type.getTextLength();
-    ContainerUtil.sort(innerTypes, ELEMENT_BY_RANGE_COMPARATOR);
-    for (int i = innerTypes.size() - 1; i >= 0; i--) {
-      GoType innerType = innerTypes.get(i);
-      if (innerType != null) {
-        TextRange range = innerType.getTextRange().shiftRight(-initialOffset);
-        result.insert(0, XmlStringUtil.escapeString(typeText.substring(range.getEndOffset(), lastStartOffset)));
-        result.insert(0, getTypePresentation(innerType, contextImportPath));
-        lastStartOffset = range.getStartOffset();
-      }
-    }
-    result.insert(0, XmlStringUtil.escapeString(typeText.substring(0, lastStartOffset)));
-    return result.length() > 0 ? result.toString() : typeText;
   }
 
   @Nullable

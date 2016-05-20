@@ -38,10 +38,12 @@ import java.util.Collections;
 import java.util.List;
 
 public class GoMissingReturnInspection extends GoInspectionBase {
+  public static final String ADD_RETURN_STATEMENT_QUICK_FIX_NAME = "Add return statement";
+
   private static void check(@Nullable GoSignature signature, @Nullable GoBlock block, @NotNull ProblemsHolder holder) {
     if (block == null) return;
     GoResult result = signature != null ? signature.getResult() : null;
-    if (result == null || isTerminating(block)) return;
+    if (result == null || result.isVoid() || isTerminating(block)) return;
 
     PsiElement brace = block.getRbrace();
     holder.registerProblem(brace == null ? block : brace, "Missing return at end of function",
@@ -150,7 +152,7 @@ public class GoMissingReturnInspection extends GoInspectionBase {
     @NotNull
     @Override
     public String getText() {
-      return "Add return statement";
+      return ADD_RETURN_STATEMENT_QUICK_FIX_NAME;
     }
 
     @NotNull

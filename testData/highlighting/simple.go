@@ -8,7 +8,7 @@ import "io"
 func x(string) {}
 
 func  main() {
-    println(<error descr="Type []string is not an expression">[]string</error>)
+    println([]string<error descr="'!=', '%', '&', '&^', '(', ')', '*', '+', ',', '-', '.', '...', '/', <, <<, <=, '==', '>', '>=', '>>', '^', '{' or '|' expected, got ')'">)</error>
     ((<error descr="Type string is not an expression">string</error>))
     x((string)("foo"))
     x(<error descr="Type string is not an expression">string</error> + <error descr="Type string is not an expression">string</error>)
@@ -173,7 +173,7 @@ func _(st interface {Foo()}, st1 Iface) {
     for <error descr="Cannot assign to constant">name1</error> = range <error descr="Cannot range over data (type interface {...})">st</error> {
         
     }
-    Println(st.Foo() + st1.Boo())
+    Println(<error descr="st.Foo() used as value">st.Foo()</error> + st1.Boo())
 }
 
 // No new variables on left side
@@ -404,6 +404,15 @@ func _(col Color) string {
     Println(testdata.a)
 <error descr="Missing return at end of function">}</error>
 
+func _(col Color) () {
+    Println(col.B)  
+    
+    var testdata *struct {
+        a *[7]int
+    }
+    Println(testdata.a)
+}
+
 type Name struct {
 }
 
@@ -438,14 +447,6 @@ func _() int {
     {
         return 1
     }
-}
-
-func _() {
-    defer <error descr="Argument to defer must be function call">(func(){}())</error>
-    defer <error descr="Argument to defer must be function call">1</error>
-    go <error descr="Argument to go must be function call">func(){}</error>
-    defer func(){}()
-    go func(){}()
 }
 
 func _(<warning descr="Unused parameter 'bar'">bar</warning> func(baz    int)) {
