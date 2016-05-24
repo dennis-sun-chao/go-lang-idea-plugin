@@ -22,7 +22,6 @@ import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.SyntaxTraverser;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -131,6 +130,20 @@ public class GoTypeUtil {
     List<String> lNames = ContainerUtil.map(l, PsiNamedElement::getName);
     List<String> rNames = ContainerUtil.map(r, PsiNamedElement::getName);
     if (!ContainerUtil.equalsIdentity(lNames, rNames)) return false;
+
+    for (int i = 0; i < l.size(); i++) {
+      GoNamedElement f = l.get(i);
+      GoNamedElement s = r.get(i);
+      if (f instanceof GoFieldDefinition) {
+        if (!(s instanceof GoFieldDefinition)) return false;
+        if (!identical(f.getGoType(null), s.getGoType(null))) return false;
+      }
+      if (f instanceof GoAnonymousFieldDefinition) {
+        if (!(s instanceof GoAnonymousFieldDefinition)) return false;
+        if (!identical(((GoAnonymousFieldDefinition)f).getTypeReferenceExpression().resolveType(), 
+                       ((GoAnonymousFieldDefinition)s).getTypeReferenceExpression().resolveType())) return false;
+      }
+    }
     return true;
   }
 }

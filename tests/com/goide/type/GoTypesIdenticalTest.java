@@ -57,6 +57,7 @@ public class GoTypesIdenticalTest extends GoCodeInsightFixtureTestCase {
       {"struct{a int}", "struct{a int}", true},
       {"struct{a int}", "struct{b int}", false},
       {"struct{a int}", "struct{a string; b int}", false},
+      {"struct{a int; int}", "struct{a int; int string}", false},
     });
   }
 
